@@ -22,5 +22,95 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
+
+/* Estilos de Impresión Optimizados para ATS y Evitar Páginas en Blanco */
+@media print {
+  /* Forzar tamaño de página A4 con márgenes controlados en cada página */
+  @page {
+    size: A4;
+    margin: 0 !important;
+  }
+  
+  /* Resetear html y body para evitar desbordamientos invisibles */
+  html, body {
+    height: auto !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background-color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Asegurar que el contenedor del CV ocupe el ancho correcto y no cree márgenes colapsados */
+  .print-container {
+    width: 210mm !important; /* Ancho exacto A4 */
+    min-height: 297mm !important; /* Alto exacto A4 */
+    margin: 0 auto !important;
+    padding-top: 15mm !important; /* Margen interno superior del documento */
+    padding-bottom: 15mm !important;
+    padding-left: 15mm !important;
+    padding-right: 15mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    position: relative !important;
+    left: 0 !important;
+    top: 0 !important;
+    transform: none !important;
+    -webkit-box-decoration-break: clone !important;
+    box-decoration-break: clone !important;
+  }
+
+  /* Ocultar cualquier elemento que no sea el CV */
+  body > *:not(main), 
+  nav, 
+  button, 
+  header.no-print,
+  section.no-print,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Ocultar todo por defecto excepto el área imprimible */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Mostrar únicamente el contenedor del CV y todos sus elementos internos */
+  .print-container,
+  .print-container * {
+    visibility: visible !important;
+  }
+
+  /* Asegurar que los títulos h2 nunca queden huérfanos al fondo de una página */
+  h2 {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+  
+  /* Evitar cortes feos a mitad de línea en viñetas o elementos individuales */
+  .print-avoid-break,
+  .break-inside-avoid {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Forzar saltos de página controlados de forma explícita */
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  /* Formato clásico de hipervínculos en papel (ocultando subrayado web invasivo) */
+  a {
+    color: #000000 !important;
+    text-decoration: none !important;
+  }
 }
