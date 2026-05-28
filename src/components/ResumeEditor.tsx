@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { 
   User, 
@@ -32,6 +32,7 @@ import HybridCompact from './templates/HybridCompact'
 import HybridModern from './templates/HybridModern'
 import CreativeHandout from './templates/CreativeHandout'
 import { createClient } from '@/utils/supabase/client'
+import { toast } from 'sonner'
 
 // Empty initial state
 const emptyResumeState: ResumeContent = {
@@ -56,6 +57,7 @@ const emptyResumeState: ResumeContent = {
 export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
   // Resume content state
   const [resumeContent, setResumeContent] = useState<ResumeContent>(mockResumeData)
+  const [resumeTitle, setResumeTitle] = useState<string>('Mi Currículum Profesional')
   
   // Customization settings
   const [templateId, setTemplateId] = useState<'classic' | 'modern' | 'hybrid-compact' | 'hybrid-modern' | 'creative-handout'>('modern')
@@ -69,6 +71,10 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
 
   // User Authentication state
   const [user, setUser] = useState<any>(null)
+  
+  // Dropdown UI states
+  const [actionsDropdownOpen, setActionsDropdownOpen] = useState(false)
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false)
 
   useEffect(() => {
     const checkSession = async () => {
@@ -108,6 +114,9 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
           if (data.template_id) {
             setTemplateId(data.template_id as any)
           }
+          if (data.title) {
+            setResumeTitle(data.title)
+          }
           setSaveStatus('✓ Currículum cargado desde la nube')
         }
       } catch (err) {
@@ -141,6 +150,7 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
     const savedTemplate = localStorage.getItem('ats_resume_template')
     const savedFont = localStorage.getItem('ats_resume_font')
     const savedAccent = localStorage.getItem('ats_resume_accent')
+    const savedTitle = localStorage.getItem('ats_resume_title')
 
     if (saved) {
       try {
@@ -152,6 +162,7 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
     if (savedTemplate) setTemplateId(savedTemplate as any)
     if (savedFont) setFontFamily(savedFont as any)
     if (savedAccent) setAccentColor(savedAccent as any)
+    if (savedTitle) setResumeTitle(savedTitle)
   }, [resumeId])
 
   useEffect(() => {
@@ -162,6 +173,7 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
       localStorage.setItem('ats_resume_template', templateId)
       localStorage.setItem('ats_resume_font', fontFamily)
       localStorage.setItem('ats_resume_accent', accentColor)
+      localStorage.setItem('ats_resume_title', resumeTitle)
 
       // Save to Supabase if we have a specific resumeId
       if (resumeId) {
@@ -170,6 +182,7 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
           const { error } = await supabase
             .from('resumes')
             .update({
+              title: resumeTitle,
               content: resumeContent,
               template_id: templateId,
               updated_at: new Date().toISOString()
@@ -180,9 +193,11 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
             throw error
           }
           setSaveStatus('✓ Cambios guardados en la nube')
+          toast.success("Cambios guardados automáticamente", { id: "autosave" })
         } catch (err) {
           console.error('Error al guardar en Supabase:', err)
           setSaveStatus('⚠ Error al guardar en la nube (reintentando...)')
+          toast.error("Error al guardar los cambios en la nube", { id: "autosave" })
         }
       } else {
         setSaveStatus('✓ Cambios guardados localmente')
@@ -190,7 +205,7 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
     }, 2000)
 
     return () => clearTimeout(timer)
-  }, [resumeContent, templateId, fontFamily, accentColor, resumeId])
+  }, [resumeContent, templateId, fontFamily, accentColor, resumeId, resumeTitle])
 
   // Image Upload state and handlers
   const [uploading, setUploading] = useState(false)
@@ -469,6 +484,112 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
     }
   }
 
+  // Copy shareable link to clipboard
+  const handleCopyShareLink = () => {
+    if (!resumeId) return
+    const publicUrl = `${window.location.origin}/cv/${resumeId}`
+    navigator.clipboard.writeText(publicUrl)
+      .then(() => {
+        toast.success("¡Enlace copiado al portapapeles!", { id: "share-link" })
+      })
+      .catch((err) => {
+        console.error("Error al copiar enlace:", err)
+        toast.error("No se pudo copiar el enlace al portapapeles", { id: "share-link" })
+      })
+  }
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Export CV structured data to a local JSON file
+  const exportToJSON = () => {
+    try {
+      const jsonString = JSON.stringify(resumeContent, null, 2)
+      const blob = new Blob([jsonString], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'mi-cv-backup.json'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      
+      toast.success("Copia de seguridad exportada con éxito", { id: "backup-toast" })
+    } catch (err) {
+      console.error(err)
+      toast.error("Error al exportar copia de seguridad", { id: "backup-toast" })
+    }
+  }
+
+  // Import CV structured data from a local JSON file
+  const importFromJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string)
+        console.log("Datos importados:", parsed)
+        
+        // Defensive mapping to extract inner content structure if full Supabase row is provided
+        const cleanData = parsed.content || parsed.data || parsed
+        
+        // Basic validation of fields inside parsed clean structure
+        if (cleanData && typeof cleanData === 'object' && cleanData.personalInfo) {
+          // 1. Force state reference change to cleanly re-hydrate all form fields
+          setResumeContent({ ...cleanData })
+          
+          // 2. Extract and update root-level metadata if present in full backup
+          if (parsed.title) {
+            setResumeTitle(parsed.title)
+          }
+          if (parsed.template_id) {
+            setTemplateId(parsed.template_id as any)
+          }
+          
+          // 3. Clear input inside onload to support re-uploading same file
+          if (e.target) e.target.value = ''
+          
+          // 4. Save immediately to database if resumeId is present to avoid stale state writes
+          if (resumeId) {
+            setSaveStatus('Guardando copia de seguridad...')
+            const supabase = createClient()
+            
+            // Re-map correct columns for Supabase payload
+            const updatePayload: any = {
+              content: cleanData,
+              updated_at: new Date().toISOString()
+            }
+            if (parsed.title) updatePayload.title = parsed.title
+            if (parsed.template_id) updatePayload.template_id = parsed.template_id
+
+            const { error } = await supabase
+              .from('resumes')
+              .update(updatePayload)
+              .eq('id', resumeId)
+
+            if (error) throw error
+            setSaveStatus('✓ Cambios guardados en la nube')
+            toast.success("¡Copia de seguridad restaurada y guardada con éxito!", { id: "backup-toast" })
+          } else {
+            setSaveStatus('✓ Cambios guardados localmente')
+            toast.success("¡Copia de seguridad restaurada con éxito!", { id: "backup-toast" })
+          }
+        } else {
+          toast.error("Archivo JSON inválido o corrupto", { id: "backup-toast" })
+          if (e.target) e.target.value = ''
+        }
+      } catch (err) {
+        console.error("Error al importar copia de seguridad:", err)
+        toast.error("Archivo JSON inválido o corrupto", { id: "backup-toast" })
+        if (e.target) e.target.value = ''
+      }
+    }
+    reader.readAsText(file)
+  }
+
   // Reset and load mock helpers
   const handleResetData = () => {
     if (window.confirm('¿Seguro que deseas vaciar todos los campos del currículum? Se perderán los datos actuales.')) {
@@ -496,93 +617,203 @@ export default function ResumeEditor({ resumeId }: { resumeId?: string }) {
     <div className="flex flex-col min-h-screen bg-slate-900 text-slate-100 font-sans">
       
       {/* Top Navbar (Not Printed) */}
-      <header className="no-print bg-slate-950 border-b border-slate-800 px-6 py-4 sticky top-0 z-50 flex flex-wrap justify-between items-center gap-4 shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="bg-indigo-600 p-2 rounded-lg text-white shadow-lg shadow-indigo-600/30">
-            <Sparkles className="w-5 h-5" />
+      <header className="no-print bg-slate-900 border-b border-slate-800 px-6 h-16 sticky top-0 z-50 flex justify-between items-center shadow-md select-none">
+        {/* Bloque Izquierdo */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-indigo-600 p-2 rounded-lg text-white shadow-lg shadow-indigo-600/30 flex-shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={resumeTitle}
+                  onChange={(e) => setResumeTitle(e.target.value)}
+                  className="bg-transparent text-white font-bold text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500/30 rounded px-1 -mx-1 py-0.5 w-40 md:w-56 lg:w-64 max-w-full"
+                  placeholder="Mi Currículum Profesional"
+                />
+                <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30 flex-shrink-0">
+                  Optimizado
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1.5 leading-none">Currículums legibles por bots y humanos</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-extrabold text-lg text-white tracking-tight flex items-center gap-2">
-              ATS CV Builder
-              <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                Optimizado
-              </span>
-            </h1>
-            <p className="text-xs text-slate-400">Currículums profesionales legibles por bots y humanos</p>
-          </div>
-        </div>
 
-        {/* Quick controls */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs text-slate-400 font-medium hidden md:inline">
+          <span className="text-[11px] text-slate-400 font-semibold bg-slate-950 px-2.5 py-1 rounded-md border border-slate-850 hidden sm:inline-block">
             {saveStatus}
           </span>
+        </div>
 
-          {user ? (
-            <>
-              <span className="hidden xl:inline-block text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/20 px-2.5 py-1 rounded-md">
-                Sesión: {user.email}
-              </span>
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 transition hover:scale-[1.02] cursor-pointer"
-                title="Volver a tu panel de currículums"
-              >
-                Dashboard
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-red-950/30 hover:bg-red-900 hover:text-white text-red-400 border border-red-900/30 hover:border-red-900 transition hover:scale-[1.02] cursor-pointer"
-                title="Cerrar tu sesión de Supabase"
-              >
-                Cerrar Sesión
-              </button>
-            </>
-          ) : (
-            <Link
-              href="/auth"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold bg-indigo-900/60 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600 hover:text-white transition hover:scale-[1.02] cursor-pointer"
-              title="Iniciar sesión para guardar en la nube"
-            >
-              Iniciar Sesión
-            </Link>
-          )}
-
-          <button
-            onClick={handleLoadDemoData}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 transition hover:scale-[1.02] cursor-pointer"
-            title="Cargar currículum completo de demostración"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Cargar Demo
-          </button>
-
-          <button
-            onClick={handleResetData}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-800 hover:bg-red-950 hover:text-red-400 text-slate-400 border border-slate-700 hover:border-red-900 transition cursor-pointer"
-            title="Limpiar todos los campos"
-          >
-            Vaciar
-          </button>
-
+        {/* Bloque Derecho (Acciones principales agrupadas) */}
+        <div className="flex items-center gap-3">
+          
+          {/* Public Link Copier */}
           {resumeId && (
             <button
-              onClick={handleManualSave}
-              className="flex items-center gap-2 px-4 py-2 rounded-md text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 transition hover:scale-[1.03] active:scale-95 cursor-pointer"
-              title="Guardar currículum manualmente en Supabase"
+              onClick={handleCopyShareLink}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-850 hover:bg-slate-800 border border-slate-800 text-indigo-400 hover:text-indigo-300 transition duration-150 active:scale-[0.98] cursor-pointer"
+              title="Copiar enlace público de este currículum"
             >
-              <CheckCircle className="w-4 h-4" />
-              Guardar Cambios
+              <Globe className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Copiar enlace público</span>
+              <span className="md:hidden">Copiar Enlace</span>
             </button>
           )}
 
+          {/* Print / Save PDF Button */}
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 rounded-md text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition hover:scale-[1.03] active:scale-95 cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition duration-150 active:scale-[0.98] cursor-pointer"
           >
-            <Printer className="w-4 h-4" />
-            Imprimir / Guardar PDF
+            <Printer className="w-3.5 h-3.5" />
+            <span>Imprimir PDF</span>
           </button>
+
+          {/* Document / Actions Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setActionsDropdownOpen(!actionsDropdownOpen)
+                setUserDropdownOpen(false)
+              }}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-850 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition duration-150 cursor-pointer"
+            >
+              <span>Acciones</span>
+              <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${actionsDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {actionsDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setActionsDropdownOpen(false)}></div>
+                <div className="absolute right-0 mt-2 w-48 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl p-1.5 z-20 space-y-0.5 animate-in fade-in-50 slide-in-from-top-1 duration-100">
+                  <button
+                    onClick={() => {
+                      setActionsDropdownOpen(false)
+                      handleLoadDemoData()
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-indigo-400" />
+                    Cargar Demo
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActionsDropdownOpen(false)
+                      handleResetData()
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-950/20 rounded-lg transition cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Vaciar lienzo
+                  </button>
+
+                  <div className="border-t border-slate-900 my-1"></div>
+                  
+                  <button
+                    onClick={() => {
+                      setActionsDropdownOpen(false)
+                      exportToJSON()
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition cursor-pointer"
+                  >
+                    <FileDown className="w-3.5 h-3.5 text-indigo-400" />
+                    Exportar Backup JSON
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActionsDropdownOpen(false)
+                      fileInputRef.current?.click()
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition cursor-pointer"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5 text-indigo-400" />
+                    Importar Backup JSON
+                  </button>
+
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".json"
+                    onChange={importFromJSON}
+                    className="hidden"
+                  />
+
+                  {resumeId && (
+                    <button
+                      onClick={() => {
+                        setActionsDropdownOpen(false)
+                        handleManualSave()
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/20 rounded-lg border-t border-slate-900 mt-1 pt-2 transition cursor-pointer"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Guardar Manual
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* User Account / Session Dropdown */}
+          <div className="relative">
+            {user ? (
+              <>
+                <button
+                  onClick={() => {
+                    setUserDropdownOpen(!userDropdownOpen)
+                    setActionsDropdownOpen(false)
+                  }}
+                  className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/20 text-white flex items-center justify-center font-bold text-xs shadow-md transition duration-150 hover:scale-105 cursor-pointer"
+                  title={user.email}
+                >
+                  {user.email?.charAt(0).toUpperCase() || 'U'}
+                </button>
+
+                {userDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setUserDropdownOpen(false)}></div>
+                    <div className="absolute right-0 mt-2 w-52 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl p-1.5 z-20 animate-in fade-in-50 slide-in-from-top-1 duration-100">
+                      <div className="px-3 py-2 border-b border-slate-900 mb-1">
+                        <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Usuario</p>
+                        <p className="text-xs font-medium text-slate-300 truncate">{user.email}</p>
+                      </div>
+                      <Link
+                        href="/dashboard"
+                        onClick={() => setUserDropdownOpen(false)}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition"
+                      >
+                        <LayoutTemplate className="w-3.5 h-3.5 text-indigo-400" />
+                        Ir al Dashboard
+                      </Link>
+                      <button
+                        onClick={() => {
+                          setUserDropdownOpen(false)
+                          handleLogout()
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-950/20 rounded-lg mt-1 transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 rotate-45" />
+                        Cerrar Sesión
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <Link
+                href="/auth"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-900/60 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-600 hover:text-white transition duration-150 active:scale-[0.98] cursor-pointer"
+                title="Iniciar sesión para guardar en la nube"
+              >
+                <span>Iniciar Sesión</span>
+              </Link>
+            )}
+          </div>
+
         </div>
       </header>
 
